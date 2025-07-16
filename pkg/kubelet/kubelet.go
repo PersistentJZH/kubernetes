@@ -688,6 +688,9 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 		klet.sourcesReady,
 	)
 
+	// Initialize the NodeInfo cache invalidator
+	klet.nodeInfoCacheInvalidator = lifecycle.NewCacheInvalidator(lifecycle.NewNodeInfoCache(5 * time.Minute))
+
 	klet.resourceAnalyzer = serverstats.NewResourceAnalyzer(klet, kubeCfg.VolumeStatsAggPeriod.Duration, kubeDeps.Recorder)
 
 	klet.runtimeService = kubeDeps.RemoteRuntimeService
@@ -1162,6 +1165,9 @@ type Kubelet struct {
 
 	// allocationManager manages allocated resources for pods.
 	allocationManager allocation.Manager
+
+	// nodeInfoCacheInvalidator invalidates the NodeInfo cache when relevant events occur
+	nodeInfoCacheInvalidator lifecycle.CacheInvalidator
 
 	// resyncInterval is the interval between periodic full reconciliations of
 	// pods on this node.
@@ -2634,6 +2640,9 @@ func (kl *Kubelet) HandlePodAdditions(pods []*v1.Pod) {
 			UpdateType: kubetypes.SyncPodCreate,
 			StartTime:  start,
 		})
+
+		// Invalidate NodeInfo cache when pod is added
+		kl.nodeInfoCacheInvalidator.OnPodAdded(pod.UID)
 	}
 	if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScaling) {
 		for _, uid := range pendingResizes {
@@ -2680,6 +2689,10 @@ func (kl *Kubelet) HandlePodUpdates(pods []*v1.Pod) {
 			UpdateType: kubetypes.SyncPodUpdate,
 			StartTime:  start,
 		})
+
+		// Invalidate NodeInfo cache when pod is updated (allocation or status change)
+		kl.nodeInfoCacheInvalidator.OnPodAllocationChanged(pod.UID)
+		kl.nodeInfoCacheInvalidator.OnPodStatusChanged(pod.UID)
 	}
 }
 
@@ -2711,6 +2724,9 @@ func (kl *Kubelet) HandlePodRemoves(pods []*v1.Pod) {
 		if err := kl.deletePod(pod); err != nil {
 			klog.V(2).InfoS("Failed to delete pod", "pod", klog.KObj(pod), "err", err)
 		}
+
+		// Invalidate NodeInfo cache when pod is removed
+		kl.nodeInfoCacheInvalidator.OnPodRemoved(pod.UID)
 	}
 
 	if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScaling) {

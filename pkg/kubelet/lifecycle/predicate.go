@@ -19,6 +19,7 @@ package lifecycle
 import (
 	"fmt"
 	"runtime"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -99,6 +100,7 @@ type predicateAdmitHandler struct {
 	getNodeAnyWayFunc        getNodeAnyWayFuncType
 	pluginResourceUpdateFunc pluginResourceUpdateFuncType
 	admissionFailureHandler  AdmissionFailureHandler
+	nodeInfoCache            NodeInfoCache
 }
 
 var _ PodAdmitHandler = &predicateAdmitHandler{}
@@ -107,9 +109,10 @@ var _ PodAdmitHandler = &predicateAdmitHandler{}
 // if a pod can be admitted from the perspective of predicates.
 func NewPredicateAdmitHandler(getNodeAnyWayFunc getNodeAnyWayFuncType, admissionFailureHandler AdmissionFailureHandler, pluginResourceUpdateFunc pluginResourceUpdateFuncType) PodAdmitHandler {
 	return &predicateAdmitHandler{
-		getNodeAnyWayFunc,
-		pluginResourceUpdateFunc,
-		admissionFailureHandler,
+		getNodeAnyWayFunc:        getNodeAnyWayFunc,
+		pluginResourceUpdateFunc: pluginResourceUpdateFunc,
+		admissionFailureHandler:  admissionFailureHandler,
+		nodeInfoCache:            NewNodeInfoCache(5 * time.Minute), // Cache for 5 minutes
 	}
 }
 
@@ -152,8 +155,7 @@ func (w *predicateAdmitHandler) Admit(attrs *PodAdmitAttributes) PodAdmitResult 
 	}
 
 	pods := attrs.OtherPods
-	nodeInfo := schedulerframework.NewNodeInfo(pods...)
-	nodeInfo.SetNode(node)
+	nodeInfo := w.nodeInfoCache.GetNodeInfo(node, pods)
 
 	// ensure the node has enough plugin resources for that required in pods
 	if err = w.pluginResourceUpdateFunc(nodeInfo, attrs); err != nil {

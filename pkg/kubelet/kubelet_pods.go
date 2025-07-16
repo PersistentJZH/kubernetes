@@ -1068,11 +1068,15 @@ func (kl *Kubelet) filterOutInactivePods(pods []*v1.Pod) []*v1.Pod {
 		// if a pod is fully terminated by UID, it should be excluded from the
 		// list of pods
 		if kl.podWorkers.IsPodKnownTerminated(p.UID) {
+			// Invalidate NodeInfo cache when pod becomes inactive (terminated)
+			kl.nodeInfoCacheInvalidator.OnPodBecameInactive(p.UID)
 			continue
 		}
 
 		// terminal pods are considered inactive UNLESS they are actively terminating
 		if kl.isAdmittedPodTerminal(p) && !kl.podWorkers.IsPodTerminationRequested(p.UID) {
+			// Invalidate NodeInfo cache when pod becomes inactive (terminal)
+			kl.nodeInfoCacheInvalidator.OnPodBecameInactive(p.UID)
 			continue
 		}
 

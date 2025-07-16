@@ -591,6 +591,12 @@ func (kl *Kubelet) updateNode(ctx context.Context, originalNode *v1.Node) (*v1.N
 	kl.setNodeStatus(ctx, node)
 
 	changed := podCIDRChanged || nodeStatusHasChanged(&originalNode.Status, &node.Status) || areRequiredLabelsNotPresent
+
+	// Invalidate NodeInfo cache when node is updated
+	if changed {
+		kl.nodeInfoCacheInvalidator.OnNodeUpdated()
+	}
+
 	return node, changed
 }
 
